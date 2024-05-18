@@ -1,3 +1,5 @@
+use std::str::Chars;
+
 #[derive(PartialEq, Debug)]
 pub enum Token {
     TokenEOF,
@@ -9,35 +11,36 @@ pub enum Token {
 }
 
 pub struct Lexer <'a> {
-    file: &'a [u8],
-    file_len: usize,
-    current_index: usize,
+    file: &'a Chars,
     tokens: Vec<Token>,
 }
 
 impl <'a> Lexer <'a> {
-    pub fn new(file: &'a [u8]) -> Self {
-        let file_len = file.len();
+    pub fn new(file: &'a Chars) -> Self {
         Lexer {
             file,
-            file_len,
-            current_index: 0,
             tokens: vec![],
         }
     }
     
     pub fn get_token(& mut self) -> Token {
-        while self.file[self.current_index].is_ascii_whitespace() {
-            self.current_index += 1;
-        }
-        if self.file[self.current_index].is_ascii_alphabetic() {
-            let mut identifier = Vec::new();
-            identifier.push(self.file[self.current_index]);
-            while self.current_index < self.current_index && self.file[self.current_index].is_ascii_alphanumeric() {
-                identifier.push(self.file[self.current_index]);
-                self.current_index += 1;
+        let first_char: char = '\0';
+        while let Some(c) = &mut self.file.next() {
+            if !c.is_whitespace() {
+                first_char = *c;
+                break;
             }
-            let identifier = String::from_utf8(identifier).unwrap();
+        }
+        if first_char.is_alphabetic() {
+            let mut identifier = String::new();
+            identifier.push(first_char);
+            while let Some(c) = &mut self.file.next() {
+                if c.is_alphabetic() {
+                    identifier.push(*c);
+                } else {
+                    break;
+                }
+            }
             if identifier == "def" {
                 return Token::TokenDef;
             }
@@ -46,34 +49,32 @@ impl <'a> Lexer <'a> {
             }
             return Token::TokenIdentifier(identifier);
         }
-        if self.file[self.current_index].is_ascii_digit() || self.file[self.current_index] == b'.' {
-            let mut number_string = Vec::new();
-            number_string.push(self.file[self.current_index]);
-            self.current_index += 1;
-            while self.file[self.current_index].is_ascii_digit() || self.file[self.current_index] == b'.' {
-                number_string.push(self.file[self.current_index]);
-                self.current_index += 1;
+        if first_char.is_ascii_digit() || first_char == '.' {
+            let mut number_string = String::new();
+            number_string.push(first_char);
+            while let Some(c) = &mut self.file.next() {
+                if c.is_ascii_digit() || *c == '.' {
+                    number_string.push(*c);
+                } else {
+                    break;
+                }
             }
-            return Token::TokenNumber(String::from_utf8(number_string).unwrap().parse::<f64>().unwrap());
+            return Token::TokenNumber(number_string.parse::<f64>().unwrap());
         }
-        if self.file[self.current_index] == b'#' {
-            self.current_index += 1;
-            while self.current_index < self.file_len
-                && self.file[self.current_index] != b'\0'
-                && self.file[self.current_index] != b'\n'
-                && self.file[self.current_index] != b'\r' {
-                self.current_index += 1;
+        if first_char == '#' {
+            while let Some(c) = &mut self.file.next() {
+                if *c == '\0' && *c == '\n' && *c == '\r' {
+                    break;
+                }
             }
-            if self.current_index < self.file_len || self.file[self.current_index] != b'\0' {
+            if !&self.file.eq(None) {
                 return self.get_token();
             }
         }
-        if self.current_index >= self.file_len || self.file[self.current_index] == b'\0' {
+        if first_char == '\0' {
             return Token::TokenEOF;
         }
-        let this_char: char = char::from(self.file[self.current_index]);
-        self.current_index += 1;
-        Token::TokenUnknown(this_char)
+        Token::TokenUnknown(first_char)
     }
 }
 
