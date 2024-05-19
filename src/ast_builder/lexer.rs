@@ -51,13 +51,15 @@ pub fn get_token<'a>(file : &mut Chars<'a>) -> Token {
     if first_char == '#' {
         let mut last_char: char = '\0';
         while let Some(c) = file.next() {
-            if c == '\0' && c == '\n' && c == '\r' {
+            if c == '\0' || c == '\n' || c == '\r' {
                 last_char = c;
                 break;
             }
         }
         if last_char != '\0' {
-            get_token(file);
+            return get_token(file);
+        } else {
+            return Token::TokenEOF;
         }
     }
     if first_char == '\0' {
@@ -92,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_get_token() {
-        let test = "+   bit bit64 64 #test\ndef extern ";
+        let test = " +   bit bit64 64 #test\ndef extern ";
         let mut chars = test.chars();
         assert_eq!(get_token(&mut chars), Token::TokenUnknown('+'));
         assert_eq!(get_token(&mut chars), Token::TokenIdentifier("bit".to_string()));
@@ -101,5 +103,19 @@ mod tests {
         assert_eq!(get_token(&mut chars), Token::TokenDef);
         assert_eq!(get_token(&mut chars), Token::TokenExtern);
         assert_eq!(get_token(&mut chars), Token::TokenEOF);
+    }
+
+    #[test]
+    fn test_lexer_new() {
+        let test = "fn tester is 5 + 7.5 #test";
+        let lexer = Lexer::new(test.chars());
+
+        assert_eq!(lexer.tokens[0], Token::TokenIdentifier("fn".to_string()));
+        assert_eq!(lexer.tokens[1], Token::TokenIdentifier("tester".to_string()));
+        assert_eq!(lexer.tokens[2], Token::TokenIdentifier("is".to_string()));
+        assert_eq!(lexer.tokens[3], Token::TokenNumber(5.));
+        assert_eq!(lexer.tokens[4], Token::TokenUnknown('+'));
+        assert_eq!(lexer.tokens[5], Token::TokenNumber(7.5));
+        assert_eq!(lexer.tokens[6], Token::TokenEOF);
     }
 }
