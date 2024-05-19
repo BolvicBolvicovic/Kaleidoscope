@@ -10,72 +10,80 @@ pub enum Token {
     TokenUnknown(char)
 }
 
-pub struct Lexer <'a> {
-    file: &'a Chars,
-    tokens: Vec<Token>,
-}
-
-impl <'a> Lexer <'a> {
-    pub fn new(file: &'a Chars) -> Self {
-        Lexer {
-            file,
-            tokens: vec![],
+pub fn get_token<'a>(file : &mut Chars<'a>) -> Token {
+    let mut first_char: char = '\0';
+    while let Some(c) = file.next() {
+        if !c.is_whitespace() {
+            first_char = c;
+            break;
         }
     }
-    
-    pub fn get_token(& mut self) -> Token {
-        let first_char: char = '\0';
-        while let Some(c) = &mut self.file.next() {
-            if !c.is_whitespace() {
-                first_char = *c;
+    if first_char.is_alphabetic() {
+        let mut identifier = String::new();
+        identifier.push(first_char);
+        while let Some(c) = file.next() {
+            if c.is_alphanumeric() {
+                identifier.push(c);
+            } else {
                 break;
             }
         }
-        if first_char.is_alphabetic() {
-            let mut identifier = String::new();
-            identifier.push(first_char);
-            while let Some(c) = &mut self.file.next() {
-                if c.is_alphabetic() {
-                    identifier.push(*c);
-                } else {
-                    break;
-                }
-            }
-            if identifier == "def" {
-                return Token::TokenDef;
-            }
-            if identifier == "extern" {
-                return Token::TokenExtern;
-            }
-            return Token::TokenIdentifier(identifier);
+        if identifier == "def" {
+            return Token::TokenDef;
         }
-        if first_char.is_ascii_digit() || first_char == '.' {
-            let mut number_string = String::new();
-            number_string.push(first_char);
-            while let Some(c) = &mut self.file.next() {
-                if c.is_ascii_digit() || *c == '.' {
-                    number_string.push(*c);
-                } else {
-                    break;
-                }
-            }
-            return Token::TokenNumber(number_string.parse::<f64>().unwrap());
+        if identifier == "extern" {
+            return Token::TokenExtern;
         }
-        if first_char == '#' {
-            while let Some(c) = &mut self.file.next() {
-                if *c == '\0' && *c == '\n' && *c == '\r' {
-                    break;
-                }
-            }
-            if !&self.file.eq(None) {
-                return self.get_token();
-            }
-        }
-        if first_char == '\0' {
-            return Token::TokenEOF;
-        }
-        Token::TokenUnknown(first_char)
+        return Token::TokenIdentifier(identifier);
     }
+    if first_char.is_ascii_digit() || first_char == '.' {
+        let mut number_string = String::new();
+        number_string.push(first_char);
+        while let Some(c) = file.next() {
+            if c.is_ascii_digit() || c == '.' {
+                number_string.push(c);
+            } else {
+                break;
+            }
+        }
+        return Token::TokenNumber(number_string.parse::<f64>().unwrap());
+    }
+    if first_char == '#' {
+        let mut last_char: char = '\0';
+        while let Some(c) = file.next() {
+            if c == '\0' && c == '\n' && c == '\r' {
+                last_char = c;
+                break;
+            }
+        }
+        if last_char != '\0' {
+            get_token(file);
+        }
+    }
+    if first_char == '\0' {
+        return Token::TokenEOF;
+    }
+    Token::TokenUnknown(first_char)
+}
+
+pub struct Lexer {
+    tokens: Vec<Token>,
+}
+
+impl Lexer {
+    pub fn new<'a>(mut file: Chars<'a>) -> Self {
+        let mut tokens = vec![];
+        loop {
+            match get_token(&mut file) {
+                Token::TokenEOF => { tokens.push(Token::TokenEOF); break; },
+                token => tokens.push(token),
+            }
+        }
+        Lexer {
+            tokens,
+        }
+    }
+    
 }
 
 #[cfg(test)]
@@ -84,14 +92,14 @@ mod tests {
 
     #[test]
     fn test_get_token() {
-        let test = "bit bit64 64 #test\ndef extern\0".as_bytes();
-        let mut lexer = Lexer::new(test);
-
-        assert_eq!(lexer.get_token(), Token::TokenIdentifier("bit".to_string()));
-        assert_eq!(lexer.get_token(), Token::TokenIdentifier("bit64".to_string()));
-        assert_eq!(lexer.get_token(), Token::TokenNumber(64.));
-        assert_eq!(lexer.get_token(), Token::TokenDef);
-        assert_eq!(lexer.get_token(), Token::TokenExtern);
-        assert_eq!(lexer.get_token(), Token::TokenEOF);
+        let test = "+   bit bit64 64 #test\ndef extern ";
+        let mut chars = test.chars();
+        assert_eq!(get_token(&mut chars), Token::TokenUnknown('+'));
+        assert_eq!(get_token(&mut chars), Token::TokenIdentifier("bit".to_string()));
+        assert_eq!(get_token(&mut chars), Token::TokenIdentifier("bit64".to_string()));
+        assert_eq!(get_token(&mut chars), Token::TokenNumber(64.));
+        assert_eq!(get_token(&mut chars), Token::TokenDef);
+        assert_eq!(get_token(&mut chars), Token::TokenExtern);
+        assert_eq!(get_token(&mut chars), Token::TokenEOF);
     }
 }
