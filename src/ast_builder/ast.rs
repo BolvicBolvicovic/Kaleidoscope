@@ -30,7 +30,13 @@ impl Parser {
     pub fn parse(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut lexer = self.lexer.clone().into_iter().peekable();
         while let Some(token) = lexer.next() {
-            self.parsed_file.push(parse_expression(token, &mut lexer)?);
+            match token {
+                Token::TokenEOF => break,
+                Token::TokenUnknown(';') => continue,
+                Token::TokenDef => self.parsed_file.push(parse_definition(&mut lexer)?),
+                Token::TokenExtern => self.parsed_file.push(parse_extern(&mut lexer)?),
+                _ => self.parsed_file.push(parse_top_level_expr(&mut lexer)?)
+            }
         }
         Ok(())
     }
@@ -121,6 +127,7 @@ fn parse_identifier_expr(token: Token, iter: &mut Peekable<IntoIter<Token>>) -> 
         if *ch != '(' {
             return Ok(ExprAST::VariableExprAST(id_name));
         } else {
+            iter.next();
             while let Some(token) = iter.next() {
                 if let Token::TokenUnknown(')') = token {
                     break;
@@ -210,10 +217,8 @@ mod tests {
 
     #[test]
     fn test_parse_identifier_expr() -> Result<(), Box<dyn std::error::Error>> {
-        let test = "test";
-        let mut parser = Parser::new(test.chars().peekable());
-        parser.parse()?;
-        assert_eq!(parser.parsed_file[0], ExprAST::VariableExprAST("test".to_string()));
+        let mut test = vec![Token::TokenIdentifier("test".to_string())].into_iter().peekable();
+        assert_eq!(parse_identifier_expr(test.next().unwrap(), &mut test)?, ExprAST::VariableExprAST("test".to_string()));
 
         let test = "test(iden)";
         let mut parser = Parser::new(test.chars().peekable());
@@ -245,6 +250,48 @@ mod tests {
                     Box::new(ExprAST::VariableExprAST("c".to_string()))
                 ),
         )));
+        Ok(())
+    }
+
+    #[test]
+    fn test_definition() -> Result<(), Box<dyn std::error::Error>> {
+       let test = "def foo(x y) x+foo(y, 4.0)"; 
+       let mut parser = Parser::new(test.chars().peekable());
+       parser.parse()?;
+       assert_eq!(parser.parsed_file[0], ExprAST::FunctionAST(
+            Box::new(ExprAST::PrototypeAST(
+                "foo".to_string(),
+                Vec::from([
+                    "x".to_string(),
+                    "y".to_string(),
+                ])
+            )),
+            Box::new(ExprAST::BinaryExprAST(
+                '+',
+                Box::new(ExprAST::VariableExprAST("x".to_string())),
+                Box::new(ExprAST::CallExprAST(
+                    "foo".to_string(), 
+                    Vec::from([
+                        ExprAST::VariableExprAST("y".to_string()),
+                        ExprAST::NumberExprAST(4.),
+                ])))
+            ))
+        ));
+       Ok(())
+    }
+
+    #[test]
+    fn test_extern() -> Result<(), Box<dyn std::error::Error>> {
+        let test = "extern sin(a)";
+        let mut parser = Parser::new(test.chars().peekable());
+        parser.parse()?;
+
+        assert_eq!(parser.parsed_file[0], ExprAST::PrototypeAST(
+            "sin".to_string(),
+            Vec::from([
+                "a".to_string()
+            ]),
+        ));
         Ok(())
     }
 }
