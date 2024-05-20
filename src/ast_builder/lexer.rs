@@ -10,6 +10,16 @@ pub enum Token {
     TokenUnknown(char)
 }
 
+impl Token {
+    pub fn get_char(&self) -> Option<char> {
+        if let Token::TokenUnknown(ch) = &self {
+            Some(*ch)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn get_token<'a>(file : &mut Peekable<Chars<'a>>) -> Token {
     let mut first_char: char = '\0';
     while let Some(c) = file.next() {

@@ -28,7 +28,7 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut lexer = self.lexer.clone().into_iter();
+        let mut lexer = self.lexer.clone().into_iter().peekable();
         while let Some(token) = lexer.next() {
             self.parsed_file.push(parse_expression(token, &mut lexer)?);
         }
@@ -36,12 +36,12 @@ impl Parser {
     }
 }
 
-fn parse_expression(token: Token, iter: &mut IntoIter<Token>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+fn parse_expression(token: Token, iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
     let lhs = parse_primary(token, iter)?;
-    parse_bin_op_rhs(0, lhs)
+    parse_bin_op_rhs(iter, 0, lhs)
 }
 
-fn parse_primary(token: Token, iter: &mut IntoIter<Token>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+fn parse_primary(token: Token, iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
     match token {
         Token::TokenIdentifier(_)   => parse_identifier_expr(token, iter),
         Token::TokenNumber(_)       => parse_number_expr(token),
@@ -51,12 +51,39 @@ fn parse_primary(token: Token, iter: &mut IntoIter<Token>) -> Result<ExprAST, Bo
     }
 }
 
-fn parse_bin_op_rhs(expr_prec: i32, lhs: ExprAST) -> Result<ExprAST, Box<dyn std::error::Error>> {
+fn parse_bin_op_rhs(iter: &mut Peekable<IntoIter<Token>>, expr_prec: i8, mut lhs: ExprAST) -> Result<ExprAST, Box<dyn std::error::Error>> {
     loop {
-        let tok_prec = -1; // get_tok_precedence()
+        let tok_prec = get_tok_precedence(iter);
         if tok_prec < expr_prec {
             return Ok(lhs);
         }
+        let bin_op = iter.next().unwrap().get_char().unwrap();
+        let mut rhs;
+        if let Some(token) = iter.next() {
+            rhs = parse_primary(token, iter)?;
+        } else {
+            return Err("right element missing in binary operation".into());
+        }
+        let next_prec = get_tok_precedence(iter);
+        if tok_prec < next_prec {
+            rhs = parse_bin_op_rhs(iter, tok_prec + 1, rhs)?;
+        }
+        lhs = ExprAST::BinaryExprAST(bin_op, Box::new(lhs), Box::new(rhs));
+    }
+}
+
+fn get_tok_precedence(iter: &mut Peekable<IntoIter<Token>>) -> i8 {
+    if let Some(Token::TokenUnknown(ch)) = iter.peek() {
+        match *ch {
+            '<' => 10,
+            '+' => 20,
+            '-' => 20,
+            '*' => 40,
+            '/' => 40,
+            _   => -1,
+        }
+    } else {
+        -1
     }
 }
 
@@ -68,7 +95,7 @@ fn parse_number_expr(num: Token) -> Result<ExprAST, Box<dyn std::error::Error>> 
     }
 }
 
-fn parse_parenthesis_expr(iter: &mut IntoIter<Token>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+fn parse_parenthesis_expr(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
     if let Some(token) = iter.next() {
         let parsed_expr = parse_expression(token, iter);
         if let Some(ch) = iter.next() && ch != Token::TokenUnknown(')') {
@@ -81,7 +108,7 @@ fn parse_parenthesis_expr(iter: &mut IntoIter<Token>) -> Result<ExprAST, Box<dyn
     }
 }
 
-fn parse_identifier_expr(token: Token, iter: &mut IntoIter<Token>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+fn parse_identifier_expr(token: Token, iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
     let id_name;
     if let Token::TokenIdentifier(id) = token {
         id_name = id;
@@ -90,35 +117,91 @@ fn parse_identifier_expr(token: Token, iter: &mut IntoIter<Token>) -> Result<Exp
     }
     
     let mut args = vec![];
-    if let Some(token) = iter.next() {
-        println!("{:?}",token);
-        if let Token::TokenUnknown(ch) = token {
-            if ch != '(' {
-                return Ok(ExprAST::VariableExprAST(id_name));
-            } else {
-                while let Some(token) = iter.next() {
-                    if let Token::TokenUnknown(ch) = token && ch == ')' {
+    if let Some(Token::TokenUnknown(ch)) = iter.peek() {
+        if *ch != '(' {
+            return Ok(ExprAST::VariableExprAST(id_name));
+        } else {
+            while let Some(token) = iter.next() {
+                if let Token::TokenUnknown(')') = token {
+                    break;
+                }
+                let arg = parse_expression(token, iter)?;
+                args.push(arg);
+                if let Some(Token::TokenUnknown(ch)) = iter.next() {
+                    if ch == ')' {
                         break;
+                    } else if ch != ',' {
+                        return Err("Expected ')' or ',' in argument list".into());
                     }
-                    let arg = parse_expression(token, iter)?;
-                    args.push(arg);
-                    if let Some(token) = iter.next() && let Token::TokenUnknown(ch) = token {
-                        if ch == ')' {
-                            break;
-                        } else if ch != ',' {
-                            return Err("Expected ')' or ',' in argument list".into());
-                        }
 
-                    }
                 }
             }
-        } else {
-            return Ok(ExprAST::VariableExprAST(id_name));
         }
     } else {
         return Ok(ExprAST::VariableExprAST(id_name));
     }
     Ok(ExprAST::CallExprAST(id_name, args))
+}
+
+fn parse_prototype(token: Token, iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+    if let Token::TokenIdentifier(ident) = token {
+        let fn_name = ident;
+        if let Some(Token::TokenUnknown('(')) = iter.next() {
+            let mut args = vec![];
+            while let Some(Token::TokenIdentifier(arg)) = iter.peek() {
+                args.push(arg.to_owned());
+                iter.next();
+            }
+            if let Some(Token::TokenUnknown(')')) = iter.next() {
+                Ok(ExprAST::PrototypeAST(fn_name, args))
+            } else {
+                Err("Expected ')' in prototype".into())
+            }
+        } else {
+            Err("Expected '(' in prototype".into())
+        }
+    } else {
+        Err("Expected function name in prototype".into())
+    }
+}
+
+fn parse_definition(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+    let fn_name;
+    if let Some(token) = iter.next() {
+        fn_name = token;
+    } else {
+        return Err("error parse_definition".into());
+    }
+    let proto = parse_prototype(fn_name, iter)?;
+    let expr_tok;
+    if let Some(token) = iter.next() {
+        expr_tok = token;
+    } else {
+        return Err("error missing expr in parse_definition".into());
+    }
+    let expr = parse_expression(expr_tok, iter)?;
+    Ok(ExprAST::FunctionAST(Box::new(proto), Box::new(expr)))
+}
+
+fn parse_extern(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+    if let Some(token) = iter.next() {
+        parse_prototype(token, iter)
+    } else {
+        Err("error parse_extern".into())
+    }
+}
+
+fn parse_top_level_expr(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
+    if let Some(token) = iter.next() {
+        if let Ok(e) = parse_expression(token, iter) {
+            let proto = ExprAST::PrototypeAST(String::new(), vec![]);
+            Ok(ExprAST::FunctionAST(Box::new(proto), Box::new(e)))
+        } else {
+            Err("error in parse_top_level_expr".into())
+        }
+    } else {
+        Err("error EOF parse_top_level_expr".into())
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +219,32 @@ mod tests {
         let mut parser = Parser::new(test.chars().peekable());
         parser.parse()?;
         assert_eq!(parser.parsed_file[0], ExprAST::CallExprAST("test".to_string(), [ExprAST::VariableExprAST("iden".to_string())].to_vec()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_bin_op() -> Result<(), Box<dyn std::error::Error>> {
+        let test = "a+b";
+        let mut parser = Parser::new(test.chars().peekable());
+        parser.parse()?;
+        assert_eq!(parser.parsed_file[0], ExprAST::BinaryExprAST(
+                '+',
+                Box::new(ExprAST::VariableExprAST("a".to_string())),
+                Box::new(ExprAST::VariableExprAST("b".to_string()))
+        ));
+
+        let test = "a+b*c";
+        let mut parser = Parser::new(test.chars().peekable());
+        parser.parse()?;
+        assert_eq!(parser.parsed_file[0], ExprAST::BinaryExprAST(
+                '+',
+                Box::new(ExprAST::VariableExprAST("a".to_string())),
+                Box::new(ExprAST::BinaryExprAST(
+                    '*',
+                    Box::new(ExprAST::VariableExprAST("b".to_string())),
+                    Box::new(ExprAST::VariableExprAST("c".to_string()))
+                ),
+        )));
         Ok(())
     }
 }
