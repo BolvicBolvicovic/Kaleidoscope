@@ -1,6 +1,6 @@
-use std::str::Chars;
+use std::{iter::Peekable, str::Chars, vec::IntoIter};
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     TokenEOF,
     TokenDef,
@@ -10,7 +10,7 @@ pub enum Token {
     TokenUnknown(char)
 }
 
-pub fn get_token<'a>(file : &mut Chars<'a>) -> Token {
+pub fn get_token<'a>(file : &mut Peekable<Chars<'a>>) -> Token {
     let mut first_char: char = '\0';
     while let Some(c) = file.next() {
         if !c.is_whitespace() {
@@ -21,9 +21,10 @@ pub fn get_token<'a>(file : &mut Chars<'a>) -> Token {
     if first_char.is_alphabetic() {
         let mut identifier = String::new();
         identifier.push(first_char);
-        while let Some(c) = file.next() {
+        while let Some(c) = file.peek() {
             if c.is_alphanumeric() {
-                identifier.push(c);
+                identifier.push(*c);
+                file.next();
             } else {
                 break;
             }
@@ -68,12 +69,13 @@ pub fn get_token<'a>(file : &mut Chars<'a>) -> Token {
     Token::TokenUnknown(first_char)
 }
 
+#[derive(Clone)]
 pub struct Lexer {
     tokens: Vec<Token>,
 }
 
 impl Lexer {
-    pub fn new<'a>(mut file: Chars<'a>) -> Self {
+    pub fn new<'a>(mut file: Peekable<Chars<'a>>) -> Self {
         let mut tokens = vec![];
         loop {
             match get_token(&mut file) {
@@ -88,6 +90,14 @@ impl Lexer {
     
 }
 
+impl IntoIterator for Lexer {
+    type Item = Token;
+    type IntoIter = IntoIter<Token>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.tokens.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,7 +105,7 @@ mod tests {
     #[test]
     fn test_get_token() {
         let test = " +   bit bit64 64 #test\ndef extern ";
-        let mut chars = test.chars();
+        let mut chars = test.chars().peekable();
         assert_eq!(get_token(&mut chars), Token::TokenUnknown('+'));
         assert_eq!(get_token(&mut chars), Token::TokenIdentifier("bit".to_string()));
         assert_eq!(get_token(&mut chars), Token::TokenIdentifier("bit64".to_string()));
@@ -107,15 +117,18 @@ mod tests {
 
     #[test]
     fn test_lexer_new() {
-        let test = "fn tester is 5 + 7.5 #test";
-        let lexer = Lexer::new(test.chars());
+        let test = "fn tester(test) is 5 + 7.5 #test";
+        let lexer = Lexer::new(test.chars().peekable());
 
         assert_eq!(lexer.tokens[0], Token::TokenIdentifier("fn".to_string()));
         assert_eq!(lexer.tokens[1], Token::TokenIdentifier("tester".to_string()));
-        assert_eq!(lexer.tokens[2], Token::TokenIdentifier("is".to_string()));
-        assert_eq!(lexer.tokens[3], Token::TokenNumber(5.));
-        assert_eq!(lexer.tokens[4], Token::TokenUnknown('+'));
-        assert_eq!(lexer.tokens[5], Token::TokenNumber(7.5));
-        assert_eq!(lexer.tokens[6], Token::TokenEOF);
+        assert_eq!(lexer.tokens[2], Token::TokenUnknown('('));
+        assert_eq!(lexer.tokens[3], Token::TokenIdentifier("test".to_string()));
+        assert_eq!(lexer.tokens[4], Token::TokenUnknown(')'));
+        assert_eq!(lexer.tokens[5], Token::TokenIdentifier("is".to_string()));
+        assert_eq!(lexer.tokens[6], Token::TokenNumber(5.));
+        assert_eq!(lexer.tokens[7], Token::TokenUnknown('+'));
+        assert_eq!(lexer.tokens[8], Token::TokenNumber(7.5));
+        assert_eq!(lexer.tokens[9], Token::TokenEOF);
     }
 }
