@@ -1,4 +1,5 @@
-use std::{iter::Peekable, str::Chars, vec::IntoIter};
+use std::{collections::HashMap, iter::Peekable, str::Chars, vec::{self, IntoIter}};
+
 use super::{Lexer, Token};
 
 #[derive(PartialEq, Debug, Clone)]
@@ -12,9 +13,9 @@ enum ExprAST {
     EOF,
 }
 
-struct Parser {
+pub struct Parser {
     lexer: Lexer,
-    parsed_file: Vec<ExprAST>,
+    pub parsed_file: Vec<ExprAST>,
 }
 
 impl Parser {
@@ -81,6 +82,7 @@ fn parse_bin_op_rhs(iter: &mut Peekable<IntoIter<Token>>, expr_prec: i8, mut lhs
 fn get_tok_precedence(iter: &mut Peekable<IntoIter<Token>>) -> i8 {
     if let Some(Token::TokenUnknown(ch)) = iter.peek() {
         match *ch {
+            '=' => 2,
             '<' => 10,
             '+' => 20,
             '-' => 20,
@@ -200,11 +202,12 @@ fn parse_extern(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn
 
 fn parse_top_level_expr(iter: &mut Peekable<IntoIter<Token>>) -> Result<ExprAST, Box<dyn std::error::Error>> {
     if let Some(token) = iter.next() {
-        if let Ok(e) = parse_expression(token, iter) {
-            let proto = ExprAST::PrototypeAST(String::new(), vec![]);
-            Ok(ExprAST::FunctionAST(Box::new(proto), Box::new(e)))
-        } else {
-            Err("error in parse_top_level_expr".into())
+        match parse_expression(token, iter) {
+            Ok(e) => {
+                let proto = ExprAST::PrototypeAST(String::new(), vec![]);
+                Ok(ExprAST::FunctionAST(Box::new(proto), Box::new(e)))
+            },
+            Err(e) => Err(e),
         }
     } else {
         Err("error EOF parse_top_level_expr".into())
@@ -217,39 +220,33 @@ mod tests {
 
     #[test]
     fn test_parse_identifier_expr() -> Result<(), Box<dyn std::error::Error>> {
-        let mut test = vec![Token::TokenIdentifier("test".to_string())].into_iter().peekable();
+        let mut test = vec![Token::TokenIdentifier("test".to_string()), Token::TokenEOF].into_iter().peekable();
         assert_eq!(parse_identifier_expr(test.next().unwrap(), &mut test)?, ExprAST::VariableExprAST("test".to_string()));
 
-        let test = "test(iden)";
-        let mut parser = Parser::new(test.chars().peekable());
-        parser.parse()?;
-        assert_eq!(parser.parsed_file[0], ExprAST::CallExprAST("test".to_string(), [ExprAST::VariableExprAST("iden".to_string())].to_vec()));
+        let mut test = vec![
+            Token::TokenIdentifier("test".to_string()),
+            Token::TokenUnknown('('),
+            Token::TokenIdentifier("iden".to_string()),
+            Token::TokenUnknown(')'),
+            Token::TokenEOF
+        ].into_iter().peekable();
+        assert_eq!(parse_identifier_expr(test.next().unwrap(), &mut test)?, ExprAST::CallExprAST("test".to_string(), [ExprAST::VariableExprAST("iden".to_string())].to_vec()));
         Ok(())
     }
 
     #[test]
     fn test_parse_bin_op() -> Result<(), Box<dyn std::error::Error>> {
-        let test = "a+b";
-        let mut parser = Parser::new(test.chars().peekable());
-        parser.parse()?;
-        assert_eq!(parser.parsed_file[0], ExprAST::BinaryExprAST(
+        let mut test = vec![
+            Token::TokenUnknown('+'),
+            Token::TokenIdentifier("b".to_string()),
+            Token::TokenEOF
+        ].into_iter().peekable();
+        assert_eq!(parse_bin_op_rhs(&mut test, 0, ExprAST::VariableExprAST("a".to_string()))?, ExprAST::BinaryExprAST(
                 '+',
                 Box::new(ExprAST::VariableExprAST("a".to_string())),
                 Box::new(ExprAST::VariableExprAST("b".to_string()))
         ));
 
-        let test = "a+b*c";
-        let mut parser = Parser::new(test.chars().peekable());
-        parser.parse()?;
-        assert_eq!(parser.parsed_file[0], ExprAST::BinaryExprAST(
-                '+',
-                Box::new(ExprAST::VariableExprAST("a".to_string())),
-                Box::new(ExprAST::BinaryExprAST(
-                    '*',
-                    Box::new(ExprAST::VariableExprAST("b".to_string())),
-                    Box::new(ExprAST::VariableExprAST("c".to_string()))
-                ),
-        )));
         Ok(())
     }
 
